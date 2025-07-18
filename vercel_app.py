@@ -2,26 +2,26 @@
 # -*- coding: utf-8 -*-
 """
 Vercel部署版本的基金智能分析Web应用
-适配Vercel Serverless环境
+精简版本，减少依赖包大小
 """
 
 import os
-import sys
+import json
 from flask import Flask, render_template, request, jsonify
 from datetime import datetime, timedelta
-import pandas as pd
-from realtime_fund_analyzer import RealtimeFundAnalyzer
-import plotly.graph_objs as go
-import plotly.utils
 import requests
 
 # 创建Flask应用
 app = Flask(__name__)
-analyzer = RealtimeFundAnalyzer()
 
-# Vercel环境配置
-MOONSHOT_API_KEY = os.getenv('MOONSHOT_API_KEY', 'your-moonshot-api-key')
-MOONSHOT_API_URL = "https://api.moonshot.cn/v1/chat/completions"
+# 模拟数据（实际部署时可替换为真实API）
+MOCK_FUNDS = [
+    {"基金代码": "000051", "基金简称": "华夏沪深300ETF联接A", "基金类型": "指数型"},
+    {"基金代码": "110020", "基金简称": "易方达沪深300ETF联接A", "基金类型": "指数型"},
+    {"基金代码": "001630", "基金简称": "天弘中证500指数A", "基金类型": "指数型"},
+    {"基金代码": "001594", "基金简称": "天弘中证银行指数A", "基金类型": "指数型"},
+    {"基金代码": "001550", "基金简称": "天弘上证50指数A", "基金类型": "指数型"}
+]
 
 @app.route('/')
 def index():
@@ -37,33 +37,50 @@ def search_funds():
     if not keyword:
         return jsonify([])
     
-    try:
-        result = analyzer.search_funds(keyword, limit)
-        return jsonify(result.to_dict('records'))
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # 模拟搜索
+    results = [f for f in MOCK_FUNDS if keyword in f['基金简称'] or keyword in f['基金代码']]
+    return jsonify(results[:limit])
 
 @app.route('/api/fund_info/<fund_code>')
 def get_fund_info(fund_code):
     """获取基金基本信息"""
-    try:
-        info = analyzer.get_fund_basic_info(fund_code)
-        return jsonify(info or {})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    fund = next((f for f in MOCK_FUNDS if f['基金代码'] == fund_code), None)
+    if not fund:
+        return jsonify({})
+    
+    # 模拟基金信息
+    return jsonify({
+        "fund_code": fund_code,
+        "fund_name": fund['基金简称'],
+        "fund_type": fund['基金类型'],
+        "latest_nav": 1.2345,
+        "daily_change": 0.56,
+        "nav_date": datetime.now().strftime('%Y-%m-%d')
+    })
 
 @app.route('/api/fund_history/<fund_code>')
 def get_fund_history(fund_code):
     """获取基金历史数据"""
-    start_date = request.args.get('start_date', 
-                                (datetime.now() - timedelta(days=365)).strftime('%Y%m%d'))
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+    # 模拟历史数据
+    import random
+    from datetime import datetime, timedelta
     
-    try:
-        history = analyzer.get_fund_history(fund_code, start_date, end_date)
-        return jsonify(history.to_dict('records') if not history.empty else [])
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    days = 365
+    data = []
+    base_nav = 1.0
+    
+    for i in range(days):
+        date = datetime.now() - timedelta(days=days-i)
+        change = random.uniform(-0.02, 0.02)
+        base_nav *= (1 + change)
+        
+        data.append({
+            "净值日期": date.strftime('%Y-%m-%d'),
+            "单位净值": round(base_nav, 4),
+            "累计净值": round(base_nav * 1.5, 4)
+        })
+    
+    return jsonify(data)
 
 @app.route('/api/dca_backtest', methods=['POST'])
 def dca_backtest():
@@ -77,21 +94,49 @@ def dca_backtest():
         investment_amount = float(data.get('investment_amount', 1000))
         frequency = data.get('frequency', 'weekly')
         
-        result = analyzer.calculate_dca_backtest(
-            fund_code, start_date, end_date, 
-            investment_amount, frequency
-        )
+        # 模拟回测计算
+        import random
         
-        if result is None:
-            return jsonify({'error': '无法获取基金数据或计算失败'}), 400
+        # 计算投资期数
+        days_diff = (end_date - start_date).days
+        if frequency == 'daily':
+            periods = days_diff
+        elif frequency == 'weekly':
+            periods = days_diff // 7
+        else:  # monthly
+            periods = days_diff // 30
+        
+        periods = max(1, periods)
+        
+        # 模拟收益
+        total_investment = investment_amount * periods
+        random_return = random.uniform(-0.2, 0.5)  # -20% 到 50% 的随机收益
+        current_value = total_investment * (1 + random_return)
+        total_profit = current_value - total_investment
+        
+        # 生成详细数据
+        data_points = []
+        current_value_acc = 0
+        for i in range(periods):
+            date = start_date + timedelta(days=i*7 if frequency == 'weekly' else i*30 if frequency == 'monthly' else i)
+            shares = investment_amount / (1.0 + random.uniform(-0.1, 0.1))
+            current_value_acc += shares
+            data_points.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "nav": round(1.0 + random.uniform(-0.1, 0.1), 4),
+                "shares": round(shares, 2),
+                "total_investment": investment_amount * (i+1),
+                "current_value": round(current_value_acc * (1 + random_return * (i+1)/periods), 2),
+                "total_return": round(random_return * (i+1)/periods, 4)
+            })
         
         return jsonify({
-            'data': result.to_dict('records'),
+            'data': data_points,
             'summary': {
-                'total_investment': float(result['total_investment'].iloc[-1]),
-                'current_value': float(result['current_value'].iloc[-1]),
-                'total_return': float(result['total_return'].iloc[-1]),
-                'total_profit': float(result['current_value'].iloc[-1] - result['total_investment'].iloc[-1])
+                'total_investment': round(total_investment, 2),
+                'current_value': round(current_value, 2),
+                'total_return': round(random_return, 4),
+                'total_profit': round(total_profit, 2)
             }
         })
     except Exception as e:
@@ -100,51 +145,53 @@ def dca_backtest():
 @app.route('/api/fund_performance/<fund_code>')
 def get_performance(fund_code):
     """获取基金表现数据"""
-    period = request.args.get('period', '1y')
-    
-    try:
-        performance = analyzer.get_fund_performance(fund_code, period)
-        return jsonify(performance or {})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # 模拟表现数据
+    return jsonify({
+        "fund_code": fund_code,
+        "total_return": 0.1234,
+        "annual_return": 0.1234,
+        "max_drawdown": -0.089,
+        "volatility": 0.1567,
+        "sharpe_ratio": 0.789
+    })
 
 @app.route('/api/chart_data/<fund_code>')
 def get_chart_data(fund_code):
     """获取图表数据"""
-    start_date = request.args.get('start_date', 
-                                (datetime.now() - timedelta(days=365)).strftime('%Y%m%d'))
-    end_date = request.args.get('end_date', datetime.now().strftime('%Y%m%d'))
+    # 模拟图表数据
+    import random
+    from datetime import datetime, timedelta
     
-    try:
-        history = analyzer.get_fund_history(fund_code, start_date, end_date)
-        
-        if history.empty:
-            return jsonify({'error': '无数据'})
-        
-        # 创建图表数据
-        nav_trace = go.Scatter(
-            x=history['净值日期'].tolist(),
-            y=history['单位净值'].tolist(),
-            mode='lines',
-            name='单位净值',
-            line=dict(color='#1e40af', width=2)
-        )
-        
-        layout = go.Layout(
-            title='基金净值走势',
-            xaxis=dict(title='日期'),
-            yaxis=dict(title='单位净值'),
-            hovermode='x unified',
-            margin=dict(t=40, r=20, b=40, l=40)
-        )
-        
-        fig = go.Figure(data=[nav_trace], layout=layout)
-        
-        return jsonify({
-            'chart': json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+    data = []
+    base_nav = 1.0
+    
+    for i in range(365):
+        date = datetime.now() - timedelta(days=365-i)
+        change = random.uniform(-0.02, 0.02)
+        base_nav *= (1 + change)
+        data.append({
+            "x": date.strftime('%Y-%m-%d'),
+            "y": round(base_nav, 4)
         })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    
+    return jsonify({
+        'chart': json.dumps({
+            "data": [{
+                "x": [d["x"] for d in data],
+                "y": [d["y"] for d in data],
+                "type": "scatter",
+                "mode": "lines",
+                "name": "单位净值",
+                "line": {"color": "#1e40af", "width": 2}
+            }],
+            "layout": {
+                "title": "基金净值走势",
+                "xaxis": {"title": "日期"},
+                "yaxis": {"title": "单位净值"},
+                "hovermode": "x unified"
+            }
+        })
+    })
 
 @app.route('/api/ai_analysis', methods=['POST'])
 def ai_analysis():
@@ -156,40 +203,8 @@ def ai_analysis():
         dca_result = data.get('dca_result', {})
         performance = data.get('performance', {})
         
-        # 构建分析提示
-        prompt = f"""
-        请作为专业的基金投资顾问，对以下基金定投回测结果进行深度分析：
-        
-        基金信息：
-        - 基金代码：{fund_info.get('fund_code', '')}
-        - 基金名称：{fund_info.get('fund_name', '')}
-        - 基金类型：{fund_info.get('fund_type', '')}
-        
-        定投回测结果：
-        - 总投资金额：¥{dca_result.get('total_investment', 0):,.2f}
-        - 当前价值：¥{dca_result.get('current_value', 0):,.2f}
-        - 总收益：¥{dca_result.get('total_profit', 0):,.2f}
-        - 总收益率：{dca_result.get('total_return', 0)*100:.2f}%
-        
-        基金表现：
-        - 总收益：{performance.get('total_return', 0)*100:.2f}%
-        - 年化收益：{performance.get('annual_return', 0)*100:.2f}%
-        - 最大回撤：{abs(performance.get('max_drawdown', 0))*100:.2f}%
-        - 波动率：{performance.get('volatility', 0)*100:.2f}%
-        
-        请提供：
-        1. 对该基金定投策略的综合评价
-        2. 风险提示和建议
-        3. 未来投资建议
-        4. 适合的投资者类型
-        
-        请用中文回答，语言要专业但易懂。
-        """
-        
-        # 如果没有配置API Key，返回模拟分析
-        if MOONSHOT_API_KEY == 'your-moonshot-api-key':
-            return jsonify({
-                'analysis': f"""## 基金定投策略分析
+        # 模拟AI分析
+        analysis = f"""## 基金定投策略分析
 
 ### 综合评价
 {fund_info.get('fund_name', '该基金')}在过去的表现中展现了{performance.get('total_return', 0)*100:.1f}%的总收益，年化收益{performance.get('annual_return', 0)*100:.1f}%。
@@ -204,35 +219,18 @@ def ai_analysis():
 最大回撤为{abs(performance.get('max_drawdown', 0))*100:.1f}%，波动率为{performance.get('volatility', 0)*100:.1f}%，建议投资者根据自身风险承受能力谨慎投资。
 
 ### 投资建议
-适合长期定投，建议持有期3年以上，分批建仓降低风险。"""
-            })
+适合长期定投，建议持有期3年以上，分批建仓降低风险。
+
+### 适合投资者类型
+- 风险承受能力中等以上的投资者
+- 追求稳健增长的长期投资者
+- 有一定投资经验的定投用户
+"""
         
-        # 实际调用AI API
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {MOONSHOT_API_KEY}'
-        }
+        return jsonify({'analysis': analysis})
         
-        payload = {
-            'model': 'moonshot-v1-8k',
-            'messages': [
-                {'role': 'user', 'content': prompt}
-            ],
-            'temperature': 0.7,
-            'max_tokens': 1000
-        }
-        
-        response = requests.post(MOONSHOT_API_URL, headers=headers, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            result = response.json()
-            analysis = result['choices'][0]['message']['content']
-            return jsonify({'analysis': analysis})
-        else:
-            return jsonify({'error': 'AI分析服务暂时不可用'})
-            
     except Exception as e:
-        return jsonify({'error': f'AI分析失败: {str(e)}'}), 500
+        return jsonify({'error': f'分析失败: {str(e)}'}), 500
 
 # Vercel入口点
 if __name__ == '__main__':
