@@ -20,7 +20,7 @@ app = Flask(__name__)
 analyzer = RealtimeFundAnalyzer()
 
 # Moonshot AI配置
-MOONSHOT_API_KEY = os.getenv('MOONSHOT_API_KEY', 'sk-gsSuu4JeUI9wIFPGfIy7XNA1BVtScgdLGynybc5MjVQPPSOK')
+MOONSHOT_API_KEY = os.getenv('MOONSHOT_API_KEY', '你的Moonshot API密钥')
 MOONSHOT_API_URL = "https://api.moonshot.cn/v1/chat/completions"
 
 @app.route('/')
